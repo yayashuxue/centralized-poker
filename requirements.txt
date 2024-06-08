@@ -107,7 +107,7 @@ pyunormalize==15.1.0
 PyYAML==6.0.1
 referencing==0.33.0
 regex==2023.12.25
-relaxedjson @ git+https://github.com/mfornet/relaxedjson.py@8c37c9c76fb55302a2d471d8057f81e74007c4aa
+relaxedjson
 requests==2.31.0
 rich==13.7.1
 rlp==3.0.0

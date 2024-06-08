@@ -47,7 +47,7 @@ with open("TokenVault.json", "r") as f:
 
 
 # nft_contract_address = "0xc87716e22EFc71D35717166A83eC0Dc751DbC421"
-nft_contract_address = "0x50cf8d7bF52D50A77ecBF3f8310dE0200c7D8352"
+nft_contract_address = "0x79cf350480B2909A241cF51167D83AfA654D4F01"
 nft_contract_abi = """
     [{
     "inputs": [
@@ -103,7 +103,6 @@ def generate_card_properties():
         nft_map[i] = {"cardNumber": cardNumber, "rarity": rarity, "forSale": False}
 
     return nft_map
-
 
 # Storing NFT metadata properties locally for now - in future pull from chain
 nft_map = generate_card_properties()
@@ -485,6 +484,7 @@ def get_nft_holders():
     while True:
         try:
             token_id += 1
+            owner = None
             owner = nft_contract.functions.ownerOf(token_id).call()
             owner = Web3.to_checksum_address(owner)
             if owner in holders:
@@ -511,9 +511,28 @@ def get_nft_holders():
 # nft_owners = {"0xC52178a1b28AbF7734b259c27956acBFd67d4636": [0]}
 # TODO - reenable this...
 # print("SKIPPING NFT_OWNERS...")
-# nft_owners = {}
-nft_owners = get_nft_holders()
+nft_owners = {}
+# nft_owners = get_nft_holders()
 
+
+def calculate_earning_rate(address):
+    """
+    Calculate the earning rate for a given address based on the rarity of their NFTs.
+
+    :param address: Ethereum address of the user (string)
+    :return: Earning rate as a float between 0 and 1
+    """
+    global nft_owners, nft_map
+
+    address = Web3.to_checksum_address(address)
+    user_nfts = nft_owners.get(address, [])
+    
+    total_rarity = sum(nft_map[tokenId]["rarity"] for holder in nft_owners for tokenId in nft_owners[holder])
+    user_rarity_sum = sum(nft_map[tokenId]["rarity"] for tokenId in user_nfts)
+    
+    earning_rate = user_rarity_sum / total_rarity if total_rarity > 0 else 0
+    
+    return earning_rate
 
 @app.get("/getUserNFTs")
 async def get_user_nfts(address: str):
@@ -760,7 +779,7 @@ async def post_deposited(item: ItemDeposit):
     deposit_amount = item.depositAmount
     deposit_amount = int(deposit_amount)
     # So get the DIFF between what they have and what we've tracked
-
+    print("DEPOSITED", address, deposit_amount)
     global TOTAL_TOKENS
 
     # Get the balance in Wei
@@ -806,8 +825,7 @@ async def get_token_balance(address: str):
     time_elapsed = time.time() - START_TIME
 
     # """
-    user_nfts = nft_owners.get(address, [])
-    earning_rate = sum([nft_map[tokenId]["rarity"] for tokenId in user_nfts]) / 100
+    earning_rate = calculate_earning_rate(address)
     # Annualized rate - compare to total token supply
     earnings_pct = (time_elapsed / (60 * 60 * 24 * 365)) * earning_rate
     print("ADDRESS, EARNINGS PCT", address, earnings_pct)
@@ -831,8 +849,7 @@ async def get_token_balance(address: str):
 async def get_earning_rate(address: str):
     # Get their NFTs - sum up the rarity values and divide by 100?  Or normalize?
     address = Web3.to_checksum_address(address)
-    user_nfts = nft_owners.get(address, [])
-    earning_rate = sum([nft_map[tokenId]["rarity"] for tokenId in user_nfts]) / 100
+    earning_rate = calculate_earning_rate(address)
     return {"data": earning_rate}
 
 
@@ -845,7 +862,7 @@ async def get_real_time_conversion():
     # Get the balance in Wei
     total_eth = await web3.eth.get_balance(token_vault_address)
     total_eth = total_eth / 10**18
-
+    print("GOT VALUES", TOTAL_TOKENS, total_eth);
     if total_eth > 0:
         conv = total_tokens / total_eth
     else:
@@ -865,10 +882,7 @@ async def get_leaderboard():
     leaders = []
     for user in users:
         if len(user["address"]) == 42:
-            user_nfts = nft_owners.get(user["address"], [])
-            earning_rate = (
-                sum([nft_map[tokenId]["rarity"] for tokenId in user_nfts]) / 100
-            )
+            earning_rate = calculate_earning_rate(user["address"])
             bal_tot = int(float(user["localBal"])) + int(float(user["inPlay"]))
             leaders.append(
                 {
@@ -897,8 +911,7 @@ async def update_token_balances():
         user_bal = 0 if not user_bal else user_bal
         time_elapsed = time.time() - START_TIME
 
-        user_nfts = nft_owners.get(bal_db["address"], [])
-        earning_rate = sum([nft_map[tokenId]["rarity"] for tokenId in user_nfts]) / 100
+        earning_rate = calculate_earning_rate(bal_db["address"])
         # Annualized rate
         earnings_pct = (time_elapsed / (60 * 60 * 24 * 365)) * earning_rate
         user_bal += int(earnings_pct * TOTAL_TOKENS)
