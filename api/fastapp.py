@@ -19,10 +19,11 @@ import aiomysql
 from contextlib import asynccontextmanager
 from typing import List
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List
 from socketio import AsyncServer, ASGIApp
 from dotenv import load_dotenv
+from typing import Optional
 
 
 # In-memory game store
@@ -592,7 +593,7 @@ async def create_new_nft(item: CreateNftItem):
 
 async def get_db_connection():
     connection = await aiomysql.connect(
-        host="localhost",
+        host=os.environ['SQL_HOST'],
         port=3306,
         user=os.environ["SQL_USER"],
         password=os.environ["SQL_PASS"],
@@ -620,21 +621,40 @@ class User(BaseModel):
     onChainBal: int
     localBal: int
     inPlay: int
+    referrer_address: Optional[str] = Field(None)
+    x_account: Optional[str] = Field(None)
+    referral_code: Optional[str] = Field(None)
 
+class WalletUser(BaseModel):
+    address: str
+    referrer_address: Optional[str] = Field(None)
+    x_account: Optional[str] = Field(None)
 
 # @app.post("/users")
 # async def create_user(user: User):
-async def create_user(address, on_chain_bal, local_bal, in_play):
+async def create_user(address, on_chain_bal, local_bal, in_play, referrer_address=None, x_account=None, referral_code=None):
     address = Web3.to_checksum_address(address)
     connection = await get_db_connection()
     async with connection.cursor() as cursor:
+        # Check if user already exists
+        await cursor.execute(
+            """
+            SELECT * FROM user_balances WHERE address = %s
+            """,
+            (address,),
+        )
+        result = await cursor.fetchone()
+        if result:
+            return {"message": "User already exists"}
+
+        # If user does not exist, create new user
         try:
             await cursor.execute(
                 """
-                INSERT INTO user_balances (address, onChainBal, localBal, inPlay) 
-                VALUES (%s, %s, %s, %s)
-            """,
-                (address, str(on_chain_bal), str(local_bal), str(in_play)),
+                INSERT INTO user_balances (address, onChainBal, localBal, inPlay, referrer_address, x_account, referral_code) 
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                """,
+                (address, str(on_chain_bal), str(local_bal), str(in_play), referrer_address, x_account, referral_code),
             )
             await connection.commit()
         except Exception as e:
@@ -643,6 +663,47 @@ async def create_user(address, on_chain_bal, local_bal, in_play):
     connection.close()
     return {"message": "User created successfully"}
 
+
+@app.post("/connectWallet")
+async def connectWallet(user: WalletUser):
+    try:
+        # Pass default values for the other parameters
+        response = await create_user(user.address, 0, 0, 0, user.referrer_address, user.x_account, None)
+        return response
+    except HTTPException as e:
+        raise e
+  
+
+class UserUpdate(BaseModel):
+    address: str = Field(...)
+    x_account: Optional[str] = Field(None)
+
+async def update_x_account(address, x_account):
+    address = Web3.to_checksum_address(address)
+    connection = await get_db_connection()
+    async with connection.cursor() as cursor:
+        try:
+            await cursor.execute(
+                """
+                UPDATE user_balances 
+                SET x_account = %s
+                WHERE address = %s
+                """,
+                (x_account, address),
+            )
+            await connection.commit()
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+@app.put("/updateUser")
+async def update_user(user: UserUpdate):
+    print("UPDATING USER", user)
+    try:
+        response = await update_x_account(user.address, user.x_account)
+        return response
+    except HTTPException as e:
+        raise e
+    
 
 class UserBalance(BaseModel):
     address: str
@@ -889,6 +950,7 @@ async def get_leaderboard():
                     "address": user["address"],
                     "balance": bal_tot,
                     "earningRate": earning_rate,
+                    "twitter": user["x_account"],
                 }
             )
     print("GOT USERS", users)
