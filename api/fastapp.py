@@ -24,7 +24,9 @@ from typing import List
 from socketio import AsyncServer, ASGIApp
 from dotenv import load_dotenv
 from typing import Optional
+from asyncio import Lock
 
+locks = {}
 
 # In-memory game store
 TABLE_STORE = {}
@@ -229,25 +231,31 @@ async def join_table(item: ItemJoinTable):
     player_id = Web3.to_checksum_address(item.address)
     deposit_amount = int(item.depositAmount)
 
-    # Need to move balance to temp funds
-    bal_db = await read_balance_one(player_id)
-    assert bal_db["localBal"] >= deposit_amount
+    # Create a lock for the player if it doesn't exist
+    if player_id not in locks:
+        locks[player_id] = Lock()
 
-    local_bal = bal_db["localBal"] - deposit_amount
-    in_play = bal_db["inPlay"] + deposit_amount
+    async with locks[player_id]:
+        # Need to move balance to temp funds
+        bal_db = await read_balance_one(player_id)
+        if bal_db["localBal"] < deposit_amount:
+            raise HTTPException(status_code=400, detail="Insufficient balance")
 
-    print("JOINING TABLE")
-    # update_balance(on_chain_bal_new, local_bal_new, inPlay, address)
-    await update_balance(bal_db["onChainBal"], local_bal, in_play, player_id)
+        local_bal = bal_db["localBal"] - deposit_amount
+        in_play = bal_db["inPlay"] + deposit_amount
 
-    seat_i = item.seatI
-    if table_id not in TABLE_STORE:
-        return {"success": False, "error": "Table not found!"}
-    poker_table_obj = TABLE_STORE[table_id]
-    # Not using seat_i for now
-    # poker_table_obj.join_table(seat_i, deposit_amount, player_id)
-    poker_table_obj.join_table_next_seat_i(deposit_amount, player_id)
-    await ws_emit_actions(table_id, poker_table_obj)
+        print("JOINING TABLE")
+        # update_balance(on_chain_bal_new, local_bal_new, inPlay, address)
+        await update_balance(bal_db["onChainBal"], local_bal, in_play, player_id)
+
+        seat_i = item.seatI
+        if table_id not in TABLE_STORE:
+            return {"success": False, "error": "Table not found!"}
+        poker_table_obj = TABLE_STORE[table_id]
+        # Not using seat_i for now
+        # poker_table_obj.join_table(seat_i, deposit_amount, player_id)
+        poker_table_obj.join_table_next_seat_i(deposit_amount, player_id)
+        await ws_emit_actions(table_id, poker_table_obj)
     return {"success": True}
 
 
@@ -615,6 +623,17 @@ async def read_users():
     print("GOT USERS", users)
     return users
 
+@app.get("/getUser/{address}")
+async def get_user(address: str):
+    address = Web3.to_checksum_address(address)
+    connection = await get_db_connection()
+    async with connection.cursor(aiomysql.DictCursor) as cursor:
+        await cursor.execute("SELECT * FROM user_balances WHERE address = %s", (address,))
+        user = await cursor.fetchone()
+    connection.close()
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    return user
 
 class User(BaseModel):
     address: str
@@ -890,7 +909,7 @@ async def get_token_balance(address: str):
     # Annualized rate - compare to total token supply
     earnings_pct = (time_elapsed / (60 * 60 * 24 * 365)) * earning_rate
     print("ADDRESS, EARNINGS PCT", address, earnings_pct)
-    bonus_earnings = int(earnings_pct * TOTAL_TOKENS)
+    bonus_earnings = int(earnings_pct * TOTAL_TOKENS) # TODO: problematic 
     # Set a minimum rate of 1 token every 30 seconds?
     # But cap it at 2 tokens every 30 seconds...
     if earning_rate > 0:
