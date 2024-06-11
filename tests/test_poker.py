@@ -394,8 +394,8 @@ def test_integration_2p_fold_two_hands(t6):
     t.take_action(poker.ACT_BB_POST, p1, 2)
     t.take_action(poker.ACT_FOLD, p0, 0)
 
-    assert not t.seats[0]["sitting_out"]
-    assert not t.seats[1]["sitting_out"]
+    # assert not t.seats[0]["sitting_out"]
+    # assert not t.seats[1]["sitting_out"]
 
     # After the fold it should progress all the way to the end and credit winnings to p1
     assert t.hand_stage == poker.HS_SB_POST_STAGE
@@ -418,8 +418,8 @@ def test_integration_2p_fold_two_hands(t6):
     assert t.seats[1]["stack"] == 100
     assert t.seats[0]["in_hand"]
     assert t.seats[1]["in_hand"]
-    assert not t.seats[0]["sitting_out"]
-    assert not t.seats[1]["sitting_out"]
+    # assert not t.seats[0]["sitting_out"]
+    # assert not t.seats[1]["sitting_out"]
 
 
 def test_integration_3p_open_fold(t2, t6):

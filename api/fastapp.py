@@ -25,6 +25,7 @@ from socketio import AsyncServer, ASGIApp
 from dotenv import load_dotenv
 from typing import Optional
 from asyncio import Lock
+import poker_app
 
 locks = {}
 
@@ -113,7 +114,7 @@ nft_map = generate_card_properties()
 nft_listings_map = {}
 
 
-sio = AsyncServer(async_mode="asgi", cors_allowed_origins="*")
+# sio = AsyncServer(async_mode="asgi", cors_allowed_origins="*")
 
 
 @asynccontextmanager
@@ -135,84 +136,85 @@ app.add_middleware(
     allow_methods=["*"],  # Allows all methods
     allow_headers=["*"],  # Allows all headers
 )
+app.include_router(poker_app.router)
 
 # Wrap the Socket.IO server with ASGI middleware
-socket_app = ASGIApp(sio, other_asgi_app=app)
+socket_app = ASGIApp(poker_app.sio, other_asgi_app=app)
 
 
 # Have to initialize the lookup tables before the API will work
-def load_lookup_tables():
-    with open("lookup_table_flushes.json", "r") as f:
-        lookup_table_flush_5c = json.loads(f.read())
+# def load_lookup_tables():
+#     with open("lookup_table_flushes.json", "r") as f:
+#         lookup_table_flush_5c = json.loads(f.read())
 
-    with open("lookup_table_basic_7c.json", "r") as f:
-        lookup_table_basic_7c = json.loads(f.read())
+#     with open("lookup_table_basic_7c.json", "r") as f:
+#         lookup_table_basic_7c = json.loads(f.read())
 
-    return lookup_table_flush_5c, lookup_table_basic_7c
+#     return lookup_table_flush_5c, lookup_table_basic_7c
 
 
-lookup_table_flush_5c, lookup_table_basic_7c = load_lookup_tables()
-poker.PokerTable.set_lookup_tables(lookup_table_basic_7c, lookup_table_flush_5c)
+# lookup_table_flush_5c, lookup_table_basic_7c = load_lookup_tables()
+# poker.PokerTable.set_lookup_tables(lookup_table_basic_7c, lookup_table_flush_5c)
 
 
 # Define Socket.IO event handlers
-@sio.event
-async def connect(sid, environ):
-    print("Client connected:", sid)
+# @sio.event
+# async def connect(sid, environ):
+#     print("Client connected:", sid)
 
 
-@sio.event
-async def disconnect(sid):
-    print("Client disconnected:", sid)
+# @sio.event
+# async def disconnect(sid):
+#     print("Client disconnected:", sid)
 
 
-async def ws_emit_actions(table_id, poker_table_obj):
-    # while True:
-    #     is_event, event = poker_table_obj.get_next_event(0)
-    #     if is_event:
-    #         await sio.emit(table_id, event)
-    #     else:
-    #         break
-    while poker_table_obj.events_pop:
-        event = poker_table_obj.events_pop.pop(0)
-        print("EMITTING EVENT", event)
-        await sio.emit(table_id, event)
+# async def ws_emit_actions(table_id, poker_table_obj):
+#     # while True:
+#     #     is_event, event = poker_table_obj.get_next_event(0)
+#     #     if is_event:
+#     #         await sio.emit(table_id, event)
+#     #     else:
+#     #         break
+#     while poker_table_obj.events_pop:
+#         event = poker_table_obj.events_pop.pop(0)
+#         print("EMITTING EVENT", event)
+#         await sio.emit(table_id, event)
 
 
-class ItemJoinTable(BaseModel):
-    tableId: str
-    address: str
-    depositAmount: int
-    seatI: int
+# class ItemJoinTable(BaseModel):
+#     tableId: str
+#     address: str
+#     depositAmount: int
+#     seatI: int
 
 
-class ItemLeaveTable(BaseModel):
-    tableId: str
-    address: str
-    seatI: int
+# class ItemLeaveTable(BaseModel):
+#     tableId: str
+#     address: str
+#     seatI: int
 
 
-class ItemRebuy(BaseModel):
-    tableId: str
-    address: str
-    rebuyAmount: str
-    seatI: int
+# class ItemRebuy(BaseModel):
+#     tableId: str
+#     address: str
+#     rebuyAmount: str
+#     seatI: int
 
 
-class ItemTakeAction(BaseModel):
-    tableId: str
-    address: str
-    seatI: int
-    actionType: int
-    amount: int
+# class ItemTakeAction(BaseModel):
+#     tableId: str
+#     address: str
+#     seatI: int
+#     actionType: int
+#     amount: int
 
 
-class ItemCreateTable(BaseModel):
-    smallBlind: int
-    bigBlind: int
-    minBuyin: int
-    maxBuyin: int
-    numSeats: int
+# class ItemCreateTable(BaseModel):
+#     smallBlind: int
+#     bigBlind: int
+#     minBuyin: int
+#     maxBuyin: int
+#     numSeats: int
 
 
 class CreateNftItem(BaseModel):
@@ -225,251 +227,266 @@ class ItemDeposit(BaseModel):
     depositAmount: str
 
 
-@app.post("/joinTable")
-async def join_table(item: ItemJoinTable):
-    table_id = item.tableId
-    player_id = Web3.to_checksum_address(item.address)
-    deposit_amount = int(item.depositAmount)
+# @app.post("/joinTable")
+# async def join_table(item: ItemJoinTable):
+#     table_id = item.tableId
+#     player_id = Web3.to_checksum_address(item.address)
+#     deposit_amount = int(item.depositAmount)
 
-    # Create a lock for the player if it doesn't exist
-    if player_id not in locks:
-        locks[player_id] = Lock()
+#     # Create a lock for the player if it doesn't exist
+#     if player_id not in locks:
+#         locks[player_id] = Lock()
 
-    async with locks[player_id]:
-        # Need to move balance to temp funds
-        bal_db = await read_balance_one(player_id)
-        if bal_db["localBal"] < deposit_amount:
-            raise HTTPException(status_code=400, detail="Insufficient balance")
+#     async with locks[player_id]:
+#         # Need to move balance to temp funds
+#         bal_db = await read_balance_one(player_id)
+#         if bal_db["localBal"] < deposit_amount:
+#             raise HTTPException(status_code=400, detail="Insufficient balance")
 
-        local_bal = bal_db["localBal"] - deposit_amount
-        in_play = bal_db["inPlay"] + deposit_amount
+#         local_bal = bal_db["localBal"] - deposit_amount
+#         in_play = bal_db["inPlay"] + deposit_amount
 
-        print("JOINING TABLE")
-        # update_balance(on_chain_bal_new, local_bal_new, inPlay, address)
-        await update_balance(bal_db["onChainBal"], local_bal, in_play, player_id)
+#         print("JOINING TABLE")
+#         # update_balance(on_chain_bal_new, local_bal_new, inPlay, address)
+#         await update_balance(bal_db["onChainBal"], local_bal, in_play, player_id)
 
-        seat_i = item.seatI
-        if table_id not in TABLE_STORE:
-            return {"success": False, "error": "Table not found!"}
-        poker_table_obj = TABLE_STORE[table_id]
-        # Not using seat_i for now
-        # poker_table_obj.join_table(seat_i, deposit_amount, player_id)
-        poker_table_obj.join_table_next_seat_i(deposit_amount, player_id)
-        await ws_emit_actions(table_id, poker_table_obj)
-    return {"success": True}
-
-
-@app.post("/leaveTable")
-async def leave_table(item: ItemLeaveTable):
-    table_id = item.tableId
-    player_id = Web3.to_checksum_address(item.address)
-    seat_i = item.seatI
-    if table_id not in TABLE_STORE:
-        return {"success": False, "error": "Table not found!"}
-
-    poker_table_obj = TABLE_STORE[table_id]
-    seat_i = poker_table_obj.player_to_seat[player_id]
-    table_stack = poker_table_obj.seats[seat_i]["stack"]
-    # poker_table_obj.leave_table(seat_i, player_id)
-    # try:
-    poker_table_obj.leave_table_no_seat_i(player_id)
-    # except:
-    #     err = traceback.format_exc()
-    #     return {"success": False, "error": err}
-    bal_db = await read_balance_one(player_id)
-
-    local_bal = bal_db["localBal"] + table_stack
-    # TODO - this assumes they're only ever at one table at a time...
-    in_play = 0
-
-    # update_balance(on_chain_bal_new, local_bal_new, inPlay, address)
-    await update_balance(bal_db["onChainBal"], local_bal, in_play, player_id)
-
-    await ws_emit_actions(table_id, poker_table_obj)
-    return {"success": True}
+#         seat_i = item.seatI
+#         if table_id not in TABLE_STORE:
+#             return {"success": False, "error": "Table not found!"}
+#         poker_table_obj = TABLE_STORE[table_id]
+#         # Not using seat_i for now
+#         # poker_table_obj.join_table(seat_i, deposit_amount, player_id)
+#         poker_table_obj.join_table_next_seat_i(deposit_amount, player_id)
+#         await ws_emit_actions(table_id, poker_table_obj)
+#     return {"success": True}
 
 
-@app.post("/rebuy")
-async def rebuy(item: ItemRebuy):
-    table_id = item.tableId
-    player_id = Web3.to_checksum_address(item.address)
-    rebuy_amount = item.rebuyAmount
-    seat_i = item.seatI
+# @app.post("/leaveTable")
+# async def leave_table(item: ItemLeaveTable):
+#     table_id = item.tableId
+#     player_id = Web3.to_checksum_address(item.address)
+#     seat_i = item.seatI
+#     if table_id not in TABLE_STORE:
+#         return {"success": False, "error": "Table not found!"}
 
-    if table_id not in TABLE_STORE:
-        return {"success": False, "error": "Table not found!"}
-    poker_table_obj = TABLE_STORE[table_id]
+#     poker_table_obj = TABLE_STORE[table_id]
+#     seat_i = poker_table_obj.player_to_seat[player_id]
+#     table_stack = poker_table_obj.seats[seat_i]["stack"]
+#     # poker_table_obj.leave_table(seat_i, player_id)
+#     # try:
+#     poker_table_obj.leave_table_no_seat_i(player_id)
+#     # except:
+#     #     err = traceback.format_exc()
+#     #     return {"success": False, "error": err}
+#     bal_db = await read_balance_one(player_id)
 
-    seat_i = poker_table_obj.player_to_seat[player_id]
-    table_stack = poker_table_obj.seats[seat_i]["stack"]
-    bal_db = await read_balance_one(player_id)
-    # TODO - this assumes they're only ever at one table at a time...
-    in_play = table_stack + rebuy_amount
+#     local_bal = bal_db["localBal"] + table_stack
+#     # TODO - this assumes they're only ever at one table at a time...
+#     in_play = 0
 
-    # update_balance(on_chain_bal_new, local_bal_new, inPlay, address)
-    await update_balance(bal_db["onChainBal"], bal_db["localBal"], in_play, player_id)
+#     # update_balance(on_chain_bal_new, local_bal_new, inPlay, address)
+#     await update_balance(bal_db["onChainBal"], local_bal, in_play, player_id)
 
-    # poker_table_obj.rebuy(seat_i, rebuy_amount, player_id)
-    # try:
-    poker_table_obj.rebuy_no_seat_i(rebuy_amount, player_id)
-    # except:
-    #     err = traceback.format_exc()
-    #     return {"success": False, "error": err}
-
-    await ws_emit_actions(table_id, poker_table_obj)
-    return {"success": True}
-
-
-@app.post("/takeAction")
-async def take_action(item: ItemTakeAction):
-    table_id = item.tableId
-    player_id = Web3.to_checksum_address(item.address)
-    seat_i = item.seatI
-    action_type = int(item.actionType)
-    amount = int(item.amount)
-    if table_id not in TABLE_STORE:
-        return {"success": False, "error": "Table not found!"}
-    poker_table_obj = TABLE_STORE[table_id]
-    start_hand_stage = poker_table_obj.hand_stage
-
-    # try:
-    poker_table_obj.take_action(action_type, player_id, amount)
-    # except:
-    #     err = traceback.format_exc()
-    #     return {"success": False, "error": err}
-
-    await ws_emit_actions(table_id, poker_table_obj)
-
-    # Only cache if we completed a hand!
-    """
-    end_hand_stage = poker_table_obj.hand_stage
-    if end_hand_stage < start_hand_stage:
-        print("UPDATING FOR TABLEID", table_id)
-        try:
-            update_table(table_id, poker_table_obj.serialize())
-        except:
-            err = traceback.format_exc()
-            print("Intitial instantiation failed!", err)
-            return False, {}
-    """
-    return {"success": True}
+#     await ws_emit_actions(table_id, poker_table_obj)
+#     return {"success": True}
 
 
-def gen_new_table_id():
-    table_id = None
-    random.seed(int(time.time()))
-    while not table_id or table_id in TABLE_STORE:
-        table_id = 10000 + int(random.random() * 990000)
-    return str(table_id)
+# @app.post("/rebuy")
+# async def rebuy(item: ItemRebuy):
+#     table_id = item.tableId
+#     player_id = Web3.to_checksum_address(item.address)
+#     rebuy_amount = item.rebuyAmount
+#     seat_i = item.seatI
+
+#     if table_id not in TABLE_STORE:
+#         return {"success": False, "error": "Table not found!"}
+#     poker_table_obj = TABLE_STORE[table_id]
+
+#     seat_i = poker_table_obj.player_to_seat[player_id]
+#     table_stack = poker_table_obj.seats[seat_i]["stack"]
+#     bal_db = await read_balance_one(player_id)
+#     # TODO - this assumes they're only ever at one table at a time...
+#     in_play = table_stack + rebuy_amount
+
+#     # update_balance(on_chain_bal_new, local_bal_new, inPlay, address)
+#     await update_balance(bal_db["onChainBal"], bal_db["localBal"], in_play, player_id)
+
+#     # poker_table_obj.rebuy(seat_i, rebuy_amount, player_id)
+#     # try:
+#     poker_table_obj.rebuy_no_seat_i(rebuy_amount, player_id)
+#     # except:
+#     #     err = traceback.format_exc()
+#     #     return {"success": False, "error": err}
+
+#     await ws_emit_actions(table_id, poker_table_obj)
+#     return {"success": True}
 
 
-@app.post("/createNewTable")
-async def create_new_table(item: ItemCreateTable):
-    # Need validation here too?
-    small_blind = item.smallBlind
-    big_blind = item.bigBlind
-    min_buyin = item.minBuyin
-    max_buyin = item.maxBuyin
-    num_seats = item.numSeats
+# @app.post("/takeAction")
+# async def take_action(item: ItemTakeAction):
+#     table_id = item.tableId
+#     player_id = Web3.to_checksum_address(item.address)
+#     seat_i = item.seatI
+#     action_type = int(item.actionType)
+#     amount = int(item.amount)
+#     if table_id not in TABLE_STORE:
+#         return {"success": False, "error": "Table not found!"}
+#     poker_table_obj = TABLE_STORE[table_id]
+#     start_hand_stage = poker_table_obj.hand_stage
 
-    # try:
-    # Validate params...
-    assert num_seats in [2, 6, 9]
-    assert big_blind == small_blind * 2
-    # Min_buyin
-    assert 10 * big_blind <= min_buyin <= 400 * big_blind
-    assert 10 * big_blind <= max_buyin <= 1000 * big_blind
-    assert min_buyin <= max_buyin
-    poker_table_obj = poker.PokerTable(
-        small_blind, big_blind, min_buyin, max_buyin, num_seats
-    )
-    table_id = gen_new_table_id()
-    TABLE_STORE[table_id] = poker_table_obj
-    # except:
-    #     err = traceback.format_exc()
-    #     return {"tableId": None, "success": False, "error": err}
+#     # try:
+#     poker_table_obj.take_action(action_type, player_id, amount)
+#     # except:
+#     #     err = traceback.format_exc()
+#     #     return {"success": False, "error": err}
 
-    # And cache it!
-    # store_table(table_id, poker_table_obj.serialize())
+#     await ws_emit_actions(table_id, poker_table_obj)
 
-    # Does this make sense?  Returning null response for all others
-    return {"success": True, "tableId": table_id}
-
-
-@app.get("/getTables")
-async def get_tables():
-    # Example element...
-    # {
-    #     "tableId": 456,
-    #     "numSeats": 6,
-    #     "smallBlind": 1,
-    #     "bigBlind": 2,
-    #     "minBuyin": 20,
-    #     "maxBuyin": 400,
-    #     "numPlayers": 2,
-    # },
-    tables = []
-    for table_id, table_obj in TABLE_STORE.items():
-        num_players = len([seat for seat in table_obj.seats if seat is not None])
-        table_info = {
-            "tableId": table_id,
-            "numSeats": table_obj.num_seats,
-            "smallBlind": table_obj.small_blind,
-            "bigBlind": table_obj.big_blind,
-            "minBuyin": table_obj.min_buyin,
-            "maxBuyin": table_obj.max_buyin,
-            "numPlayers": num_players,
-        }
-        tables.append(table_info)
-        print(table_id, table_obj)
-
-    return {"tables": tables}
+#     # Only cache if we completed a hand!
+#     """
+#     end_hand_stage = poker_table_obj.hand_stage
+#     if end_hand_stage < start_hand_stage:
+#         print("UPDATING FOR TABLEID", table_id)
+#         try:
+#             update_table(table_id, poker_table_obj.serialize())
+#         except:
+#             err = traceback.format_exc()
+#             print("Intitial instantiation failed!", err)
+#             return False, {}
+#     """
+#     return {"success": True}
 
 
-@app.get("/getTable")
-async def get_table(table_id: str):
-    if table_id not in TABLE_STORE:
-        return {"success": False, "error": "Table not found!"}
-
-    poker_table_obj = TABLE_STORE[table_id]
-
-    players = [pokerutils.build_player_data(seat) for seat in poker_table_obj.seats]
-    table_info = {
-        "tableId": table_id,
-        "numSeats": poker_table_obj.num_seats,
-        "smallBlind": poker_table_obj.small_blind,
-        "bigBlind": poker_table_obj.big_blind,
-        "minBuyin": poker_table_obj.min_buyin,
-        "maxBuyin": poker_table_obj.max_buyin,
-        "players": players,
-        "board": poker_table_obj.board,
-        "pot": poker_table_obj.pot_total,
-        "potInitial": poker_table_obj.pot_initial,
-        "button": poker_table_obj.button,
-        "whoseTurn": poker_table_obj.whose_turn,
-        # name is string, value is int
-        "handStage": poker_table_obj.hand_stage,
-        "facingBet": poker_table_obj.facing_bet,
-        "lastRaise": poker_table_obj.last_raise,
-        "action": {
-            "type": poker_table_obj.last_action_type,
-            "amount": poker_table_obj.hand_stage,
-        },
-    }
-    return {"table_info": table_info}
+# def gen_new_table_id():
+#     table_id = None
+#     random.seed(int(time.time()))
+#     while not table_id or table_id in TABLE_STORE:
+#         table_id = 10000 + int(random.random() * 990000)
+#     return str(table_id)
 
 
-@app.get("/getHandHistory")
-async def get_hand_history(tableId: str, handId: int):
-    if tableId not in TABLE_STORE:
-        return {"success": False, "error": "Table not found!"}
+# @app.post("/createNewTable")
+# async def create_new_table(item: ItemCreateTable):
+#     # Need validation here too?
+#     small_blind = item.smallBlind
+#     big_blind = item.bigBlind
+#     min_buyin = item.minBuyin
+#     max_buyin = item.maxBuyin
+#     num_seats = item.numSeats
 
-    poker_table_obj = TABLE_STORE[tableId]
-    if handId == -1:
-        handIds = sorted(list(poker_table_obj.hand_histories.keys()))
-        handId = handIds[-1]
-    return {"hh": poker_table_obj.hand_histories[handId]}
+#     # try:
+#     # Validate params...
+#     assert num_seats in [2, 6, 9]
+#     assert big_blind == small_blind * 2
+#     # Min_buyin
+#     assert 10 * big_blind <= min_buyin <= 400 * big_blind
+#     assert 10 * big_blind <= max_buyin <= 1000 * big_blind
+#     assert min_buyin <= max_buyin
+#     poker_table_obj = poker.PokerTable(
+#         small_blind, big_blind, min_buyin, max_buyin, num_seats
+#     )
+#     table_id = gen_new_table_id()
+#     TABLE_STORE[table_id] = poker_table_obj
+#     # except:
+#     #     err = traceback.format_exc()
+#     #     return {"tableId": None, "success": False, "error": err}
 
+#     # And cache it!
+#     # store_table(table_id, poker_table_obj.serialize())
+
+#     # Does this make sense?  Returning null response for all others
+#     return {"success": True, "tableId": table_id}
+
+
+# @app.get("/getTables")
+# async def get_tables():
+#     # Example element...
+#     # {
+#     #     "tableId": 456,
+#     #     "numSeats": 6,
+#     #     "smallBlind": 1,
+#     #     "bigBlind": 2,
+#     #     "minBuyin": 20,
+#     #     "maxBuyin": 400,
+#     #     "numPlayers": 2,
+#     # },
+#     tables = []
+#     for table_id, table_obj in TABLE_STORE.items():
+#         num_players = len([seat for seat in table_obj.seats if seat is not None])
+#         table_info = {
+#             "tableId": table_id,
+#             "numSeats": table_obj.num_seats,
+#             "smallBlind": table_obj.small_blind,
+#             "bigBlind": table_obj.big_blind,
+#             "minBuyin": table_obj.min_buyin,
+#             "maxBuyin": table_obj.max_buyin,
+#             "numPlayers": num_players,
+#         }
+#         tables.append(table_info)
+#         print(table_id, table_obj)
+
+#     return {"tables": tables}
+
+
+# @app.get("/getTable")
+# async def get_table(table_id: str):
+#     if table_id not in TABLE_STORE:
+#         return {"success": False, "error": "Table not found!"}
+
+#     poker_table_obj = TABLE_STORE[table_id]
+
+#     players = [pokerutils.build_player_data(seat) for seat in poker_table_obj.seats]
+#     table_info = {
+#         "tableId": table_id,
+#         "numSeats": poker_table_obj.num_seats,
+#         "smallBlind": poker_table_obj.small_blind,
+#         "bigBlind": poker_table_obj.big_blind,
+#         "minBuyin": poker_table_obj.min_buyin,
+#         "maxBuyin": poker_table_obj.max_buyin,
+#         "players": players,
+#         "board": poker_table_obj.board,
+#         "pot": poker_table_obj.pot_total,
+#         "potInitial": poker_table_obj.pot_initial,
+#         "button": poker_table_obj.button,
+#         "whoseTurn": poker_table_obj.whose_turn,
+#         # name is string, value is int
+#         "handStage": poker_table_obj.hand_stage,
+#         "facingBet": poker_table_obj.facing_bet,
+#         "lastRaise": poker_table_obj.last_raise,
+#         "action": {
+#             "type": poker_table_obj.last_action_type,
+#             "amount": poker_table_obj.hand_stage,
+#         },
+#     }
+#     return {"table_info": table_info}
+
+
+# @app.get("/getHandHistory")
+# async def get_hand_history(tableId: str, handId: int):
+#     if tableId not in TABLE_STORE:
+#         return {"success": False, "error": "Table not found!"}
+
+#     poker_table_obj = TABLE_STORE[tableId]
+#     if handId == -1:
+#         handIds = sorted(list(poker_table_obj.hand_histories.keys()))
+#         handId = handIds[-1]
+#     return {"hh": poker_table_obj.hand_histories[handId]}
+
+
+
+# @app.get("/getGamestate")
+# async def get_gamestate(tableId: str):
+#     if tableId not in TABLE_STORE:
+#         return {"success": False, "error": "Table not found!"}
+#     poker_table_obj = TABLE_STORE[tableId]
+#     return {"data": poker_table_obj.serialize()}
+
+''' poker_app above this line '''
+
+
+class ItemSetTokens(BaseModel):
+    address: str
+    depositAmount: int
 
 def get_nft_holders():
     # Fine for this to be non-async, only runs on startup
@@ -756,7 +773,6 @@ async def update_balance(on_chain_bal_new, local_bal_new, inPlay, address):
     return {"message": "Balance updated successfully"}
 
 
-# @app.get("/balance_one")
 async def read_balance_one(address: str):
     connection = await get_db_connection()
     address = Web3.to_checksum_address(address)
@@ -1188,17 +1204,6 @@ async def do_airdrop(item: ItemAirdrop):
     return {"success": True}
 
 
-@app.get("/getGamestate")
-async def get_gamestate(tableId: str):
-    if tableId not in TABLE_STORE:
-        return {"success": False, "error": "Table not found!"}
-    poker_table_obj = TABLE_STORE[tableId]
-    return {"data": poker_table_obj.serialize()}
-
-
-class ItemSetTokens(BaseModel):
-    address: str
-    depositAmount: int
 
 
 @app.post("/setTokens")

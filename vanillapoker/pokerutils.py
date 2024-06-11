@@ -6,7 +6,7 @@ def build_player_data(seat):
         "stack": seat["stack"],
         "inHand": seat["in_hand"],
         # "autoPost": seat["auto_post"],
-        "sittingOut": seat["sitting_out"],
+        # "sittingOut": seat["sitting_out"],
         "betStreet": seat["bet_street"],
         # "showdownVal": seat["showdown_val"],
         "holecards": seat["holecards"],
