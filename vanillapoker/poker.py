@@ -247,15 +247,25 @@ class PokerTable:
             self.whose_turn = seat_i
 
         # This will check for auto-posting
+        # TODO: somehow do auto-posting even there is only one user - 1 person leaves in heads up
         self._transition_hand_stage()
 
     def leave_table(self, seat_i: int, address: str):
         assert self.seats[seat_i]["address"] == address, "Player not at seat!"
+        # Fold if it's their turn
+        if seat_i == self.whose_turn:
+            self.take_action(ACT_FOLD, address, 0, external=True)
+        else:
+            self.pot_initial += self.seats[seat_i]["bet_street"] # TODO: Maybe wrong
         self.seats[seat_i] = None
         self.player_to_seat.pop(address)
         tag_lt = {"tag": "leaveTable", "player": address, "seat": seat_i}
         self.events.append(tag_lt)
         self.events_pop.append(tag_lt)
+
+        if self.all_folded():
+            self._transition_hand_stage()
+        # self._transition_hand_stage()
 
     def rebuy(self, seat_i: int, rebuy_amount: int, address: str):
         assert self.seats[seat_i]["address"] == address, "Player not at seat!"
@@ -316,7 +326,7 @@ class PokerTable:
             hs_new.last_action_amount = bet_amount_new
         elif action_type == ACT_FOLD:
             # CHECKS:
-            # None?  But what if someone folds before they post SB/BB?
+            # None?  But what if someone folds before they post SB/BB? @julie: I think we should not allow this. always auto post blinds
 
             hs_new.last_action_amount = 0
         elif action_type == ACT_CALL:
@@ -386,7 +396,7 @@ class PokerTable:
         self._increment_whose_turn()
 
         # TODO -
-        # we'll clear out events when we transition to nex<t hand
+        # we'll clear out events when we transition to next hand
         # -so how do we cleanly access any final event in API?
         # stack_arr = [x["stack"] for x in self.seats if x is not None else None]
         players = [pokerutils.build_player_data(seat) for seat in self.seats]
@@ -633,12 +643,11 @@ class PokerTable:
                     # or self.seats[seat_i]["sitting_out"]
                 ):
                     self.leave_table_no_seat_i(self.seats[seat_i]['address'])
-                    # self.seats[seat_i] = None
                     # self.seats[seat_i]["in_hand"] = False
                     # self.seats[seat_i]["sitting_out"] = True
-                # else:
-                #     self.seats[seat_i]["in_hand"] = True
-                #     self.seats[seat_i]["sitting_out"] = False
+                else:
+                    self.seats[seat_i]["in_hand"] = True
+                    # self.seats[seat_i]["sitting_out"] = False
 
         self._increment_button()
         self.whose_turn = self.button
@@ -653,13 +662,14 @@ class PokerTable:
             [
                 1
                 for p in self.seats
-                if p is not None
                 # if p is not None and p["in_hand"] and not p["sitting_out"]
+                if p is not None and p["in_hand"]
             ]
         )
         if active < 2:
+            print('should not post blind!!')
             return False
-
+        print('should post blind!!')
         if post_type == "SB" and len([p for p in self.seats if p is not None]) >= 2:
             assert self.hand_stage == HS_SB_POST_STAGE, "Bad hand stage!"
             if (
@@ -689,30 +699,31 @@ class PokerTable:
         Should always progress to the next active player
         """
         # Sanity check - don't call it if there's only one player left
-        print("incrementing button")
+        # active_players = sum(
+        #     [
+        #         not self.seats[i].get("sitting_out", True)
+        #         for i in range(self.num_seats)
+        #         if self.seats[i] is not None
+        #     ]
+        # )
+        # Initialize the count of active players
         active_players = 0
+
+        # Iterate over each seat to check player status
         for i in range(self.num_seats):
-            seat = self.seats[i]
-            # if seat is not None and not seat.get("sitting_out", True):
-            if seat is not None:
+            if self.seats[i] is not None:  # Only consider occupied seats
                 active_players += 1
+
+
 
         # TODO - how do we handle moving button if there are players sitting out?
         # Think we should still move it or a player might end up posting twice in a row?
         # What if there are empty seats?
-        # @julie: remove sitting_out and just remove player if they are out of $$$
         if active_players >= 2:
             while True:
                 self.button = (self.button + 1) % self.num_seats
                 if self.seats[self.button] is not None:
                     break
-
-                # if self.seats[self.button] is None:
-                #     continue
-                # if not self.seats[self.button]["sitting_out"]:
-                #     break
-        print("Done incrementing button")
-
 
     def _increment_whose_turn(self):
         """
@@ -822,8 +833,11 @@ class PokerTable:
             }
             self.events.append(action)
             self.events_pop.append(action)
-
+        
         if self.hand_stage == HS_SB_POST_STAGE:
+            if(self.num_active_players <= 1):
+                print("Not enough players to continue")
+                return
             posted = kwargs.get("posted")
             if not posted:
                 posted = self._handle_auto_post("SB")
@@ -893,7 +907,6 @@ class PokerTable:
             self._transition_hand_stage()
             return
         elif self.hand_stage == HS_SETTLE:
-            print("Settling...", self)
             self._settle()
             self._next_hand()
             # And reset back to post blinds stage!

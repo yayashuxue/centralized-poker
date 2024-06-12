@@ -235,6 +235,7 @@ async def take_action(item: ItemTakeAction):
     try:
         poker_table_obj.take_action(action_type, player_id, amount)
     except Exception as e:
+        print("ERROR TAKING ACTION", e)
         raise HTTPException(status_code=400, detail=str(e))
     
     await ws_emit_actions(table_id, poker_table_obj)

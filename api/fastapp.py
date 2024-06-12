@@ -914,7 +914,6 @@ async def get_token_balance(address: str):
         bal = await read_balance_one(address)
     except:
         return {"data": 0}
-    print("GOT TOKEN BALANCE", bal)
     user_bal = bal.get("localBal", 0)
     user_bal = 0 if not user_bal else user_bal
     time_elapsed = time.time() - START_TIME
@@ -923,7 +922,6 @@ async def get_token_balance(address: str):
     earning_rate = calculate_earning_rate(address)
     # Annualized rate - compare to total token supply
     earnings_pct = (time_elapsed / (60 * 60 * 24 * 365)) * earning_rate
-    print("ADDRESS, EARNINGS PCT", address, earnings_pct)
     bonus_earnings = int(earnings_pct * TOTAL_TOKENS) # TODO: problematic 
     # Set a minimum rate of 1 token every 30 seconds?
     # But cap it at 2 tokens every 30 seconds...
@@ -957,7 +955,6 @@ async def get_real_time_conversion():
     # Get the balance in Wei
     total_eth = await web3.eth.get_balance(token_vault_address)
     total_eth = total_eth / 10**18
-    print("GOT VALUES", TOTAL_TOKENS, total_eth);
     if total_eth > 0:
         conv = total_tokens / total_eth
     else:
