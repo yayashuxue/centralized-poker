@@ -141,7 +141,6 @@ app.include_router(poker_app.router)
 # Wrap the Socket.IO server with ASGI middleware
 socket_app = ASGIApp(poker_app.sio, other_asgi_app=app)
 
-
 # Have to initialize the lookup tables before the API will work
 # def load_lookup_tables():
 #     with open("lookup_table_flushes.json", "r") as f:

@@ -219,7 +219,7 @@ class PokerTable:
             "stack": deposit_amount,
             "in_hand": True,
             "auto_post": auto_post,
-            "sitting_out": False,
+            # "sitting_out": False,
             "bet_street": 0,
             "showdown_val": 8000,
             "holecards": [],
@@ -630,13 +630,15 @@ class PokerTable:
                 # If they went bust this hand - set them to be inactive!
                 if (
                     self.seats[seat_i]["stack"] <= self.small_blind
-                    or self.seats[seat_i]["sitting_out"]
+                    # or self.seats[seat_i]["sitting_out"]
                 ):
-                    self.seats[seat_i]["in_hand"] = False
-                    self.seats[seat_i]["sitting_out"] = True
-                else:
-                    self.seats[seat_i]["in_hand"] = True
-                    self.seats[seat_i]["sitting_out"] = False
+                    self.leave_table_no_seat_i(self.seats[seat_i]['address'])
+                    # self.seats[seat_i] = None
+                    # self.seats[seat_i]["in_hand"] = False
+                    # self.seats[seat_i]["sitting_out"] = True
+                # else:
+                #     self.seats[seat_i]["in_hand"] = True
+                #     self.seats[seat_i]["sitting_out"] = False
 
         self._increment_button()
         self.whose_turn = self.button
@@ -651,7 +653,8 @@ class PokerTable:
             [
                 1
                 for p in self.seats
-                if p is not None and p["in_hand"] and not p["sitting_out"]
+                if p is not None
+                # if p is not None and p["in_hand"] and not p["sitting_out"]
             ]
         )
         if active < 2:
@@ -661,7 +664,7 @@ class PokerTable:
             assert self.hand_stage == HS_SB_POST_STAGE, "Bad hand stage!"
             if (
                 self.seats[self.whose_turn]["auto_post"]
-                and not self.seats[self.whose_turn]["sitting_out"]
+                # and not self.seats[self.whose_turn]["sitting_out"]
             ):
                 address_sb = self.seats[self.whose_turn]["address"]
                 self.take_action(
@@ -672,7 +675,7 @@ class PokerTable:
             # whose_turn should have been incremented
             if (
                 self.seats[self.whose_turn]["auto_post"]
-                and not self.seats[self.whose_turn]["sitting_out"]
+                # and not self.seats[self.whose_turn]["sitting_out"]
             ):
                 address_bb = self.seats[self.whose_turn]["address"]
                 self.take_action(
@@ -686,24 +689,30 @@ class PokerTable:
         Should always progress to the next active player
         """
         # Sanity check - don't call it if there's only one player left
-        active_players = sum(
-            [
-                not self.seats[i].get("sitting_out", True)
-                for i in range(self.num_seats)
-                if self.seats[i] is not None
-            ]
-        )
+        print("incrementing button")
+        active_players = 0
+        for i in range(self.num_seats):
+            seat = self.seats[i]
+            # if seat is not None and not seat.get("sitting_out", True):
+            if seat is not None:
+                active_players += 1
 
         # TODO - how do we handle moving button if there are players sitting out?
         # Think we should still move it or a player might end up posting twice in a row?
         # What if there are empty seats?
+        # @julie: remove sitting_out and just remove player if they are out of $$$
         if active_players >= 2:
             while True:
                 self.button = (self.button + 1) % self.num_seats
-                if self.seats[self.button] is None:
-                    continue
-                if not self.seats[self.button]["sitting_out"]:
+                if self.seats[self.button] is not None:
                     break
+
+                # if self.seats[self.button] is None:
+                #     continue
+                # if not self.seats[self.button]["sitting_out"]:
+                #     break
+        print("Done incrementing button")
+
 
     def _increment_whose_turn(self):
         """
@@ -884,6 +893,7 @@ class PokerTable:
             self._transition_hand_stage()
             return
         elif self.hand_stage == HS_SETTLE:
+            print("Settling...", self)
             self._settle()
             self._next_hand()
             # And reset back to post blinds stage!
