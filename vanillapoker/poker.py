@@ -8,7 +8,8 @@ from typing import List, Tuple
 from dataclasses import dataclass
 from typing import Optional
 from vanillapoker import pokerutils
-
+import asyncio
+from ws_utils import sio, ws_emit_actions
 
 # First 13 prime numbers
 # Multiply them together to get a unique value, which we can use to
@@ -65,13 +66,14 @@ class PokerTable:
 
     def __init__(
         self,
+        table_id: str,
         small_blind: int,
         big_blind: int,
         min_buyin: int,
         max_buyin: int,
         num_seats: int,
     ):
-
+        self.table_id = table_id
         self.small_blind = small_blind
         self.big_blind = big_blind
         self.min_buyin = min_buyin
@@ -99,6 +101,11 @@ class PokerTable:
         random.shuffle(self.deck)
         self.board = []
 
+        # Will be used to track timeouts
+        self.timeout_tasks = {}
+        self.manage_timeout = True
+        self.numberofTimeouts = {}
+
         # Append every single event here for the api to pop them off
         # TODO - look to be smarter about this...
         self.events_pop = []
@@ -107,6 +114,50 @@ class PokerTable:
         self.hand_id = 0
         self.hand_histories = {}
         self._increment_hand_history()
+
+    # Handle Timeout & Cancel Timeout
+    async def start_turn_timeout(self, player_address, timeout_seconds=20):
+        await asyncio.sleep(timeout_seconds)
+        if player_address in self.timeout_tasks:
+            if self.whose_turn == self.player_to_seat[player_address] and self.num_active_players > 1:
+                # Default action if timeout occurs, e.g., fold or check
+                try:
+                    self.manage_timeout = False
+                    self.take_action(ACT_FOLD, player_address, 0, external=True, reset_timeout=False)
+                except Exception as e:
+                    # Handle the exception here
+                    print('start_turn_timeout: exception', e)
+                    self.manage_timeout = True
+                finally:
+                    # self.reset_timeout(self.seats[self.whose_turn]["address"])
+                    # self.timeout_tasks[self.seats[self.whose_turn]["address"]] = asyncio.create_task(self.start_turn_timeout(self.seats[self.whose_turn]["address"]))
+                    self.manage_timeout = True
+
+                if self.num_active_players > 1:
+                    print('hand_stage: ', self.hand_stage)
+                    if self.hand_stage == HS_PREFLOP_BETTING:
+                        print('hand_stage: ', HS_PREFLOP_BETTING)
+                        self.reset_timeout(self.seats[self.whose_turn]["address"])
+                        self.timeout_tasks[self.seats[self.whose_turn]["address"]] = asyncio.create_task(self.start_turn_timeout(self.seats[self.whose_turn]["address"]))
+
+                for event in self.events:
+                    print('start_turn_timeout: event', event)
+                await sio.emit(self.table_id, {"tag": "timeout", "player": player_address})
+                await ws_emit_actions(self.table_id, self)
+
+            self.reset_timeout(player_address)
+
+
+    def reset_timeout(self, player_address):
+        print('reset_timeout')
+        if player_address in self.timeout_tasks:
+            print('reset_timeout: cancel', self.timeout_tasks[player_address])
+            self.timeout_tasks[player_address].cancel()  # Cancel existing timer
+            print('reset_timeout: after cancel')
+            self.timeout_tasks.pop(player_address, None)  # Remove the task reference
+            print('reset_timeout: after pop')
+
+
 
     def _increment_hand_history(self):
         # Map from hand_id to events list
@@ -262,7 +313,7 @@ class PokerTable:
         tag_lt = {"tag": "leaveTable", "player": address, "seat": seat_i}
         self.events.append(tag_lt)
         self.events_pop.append(tag_lt)
-
+        print('leave_table: emit')
         if self.all_folded():
             self._transition_hand_stage()
         # self._transition_hand_stage()
@@ -349,14 +400,18 @@ class PokerTable:
 
         return hs_new
 
-    def take_action(self, action_type: int, address: str, amount: int, external=True):
+    def take_action(self, action_type: int, address: str, amount: int, external=True, reset_timeout=True):
         seat_i = self.player_to_seat[address]
-        assert seat_i == self.whose_turn, "Not player's turn!"
+        assert seat_i == self.whose_turn, "Not player's turn! %s %s" % (seat_i, self.whose_turn)
 
         # Make sure it's their turn to act and they're in the hand?
         player_data = self.seats[seat_i]
         assert player_data["in_hand"], "Player not in hand!"
 
+        if reset_timeout:
+            print('take_action: reset_timeout')
+            self.reset_timeout(address)
+        
         hs = HandState(
             player_stack=player_data["stack"],
             player_bet_street=player_data["bet_street"],
@@ -393,8 +448,10 @@ class PokerTable:
         self.button = hs_new.button
 
         # Will set whose_turn, safe to increment every time
+        print('take_action', action_type)
         self._increment_whose_turn()
 
+        
         # TODO -
         # we'll clear out events when we transition to next hand
         # -so how do we cleanly access any final event in API?
@@ -549,6 +606,7 @@ class PokerTable:
         # The issue is that if we have a 3 way pot, and first to act folds on an earlier
         # street, it will make it so it's their turn
         self.whose_turn = (self.button - 1) % self.num_seats
+        print('_next_street', self.whose_turn)
         self._increment_whose_turn()
 
         self.facing_bet = 0
@@ -678,7 +736,7 @@ class PokerTable:
             ):
                 address_sb = self.seats[self.whose_turn]["address"]
                 self.take_action(
-                    ACT_SB_POST, address_sb, self.small_blind, external=False
+                    ACT_SB_POST, address_sb, self.small_blind, external=False, reset_timeout=False
                 )
                 return True
         elif post_type == "BB":
@@ -689,7 +747,7 @@ class PokerTable:
             ):
                 address_bb = self.seats[self.whose_turn]["address"]
                 self.take_action(
-                    ACT_BB_POST, address_bb, self.big_blind, external=False
+                    ACT_BB_POST, address_bb, self.big_blind, external=False, reset_timeout=False
                 )
                 return True
         return False
@@ -741,6 +799,11 @@ class PokerTable:
                 self.whose_turn = check_i
                 inc = True
                 break
+        print('[after increment] increment_whose_turn_timeout, self.whose_turn:', self.hand_stage, self.whose_turn, self.seats[self.whose_turn]["address"], self.manage_timeout)
+        if self.manage_timeout and self.num_active_players > 1 and inc and self.hand_stage in (HS_BB_POST_STAGE, HS_PREFLOP_BETTING, HS_FLOP_BETTING, HS_TURN_BETTING, HS_RIVER_BETTING):
+            print('created timer', self.hand_stage, self.seats[self.whose_turn]["address"])
+            self.reset_timeout(self.seats[self.whose_turn]["address"])
+            self.timeout_tasks[self.seats[self.whose_turn]["address"]] = asyncio.create_task(self.start_turn_timeout(self.seats[self.whose_turn]["address"]))
 
         # Can go beyond num_seats in variety of ways
         # assert self.closing_action_count <= (
@@ -833,7 +896,7 @@ class PokerTable:
             }
             self.events.append(action)
             self.events_pop.append(action)
-        
+        print('_transition_hand_stage: start: ', self.hand_stage)
         if self.hand_stage == HS_SB_POST_STAGE:
             if(self.num_active_players <= 1):
                 print("Not enough players to continue")

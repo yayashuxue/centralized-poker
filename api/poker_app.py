@@ -29,8 +29,9 @@ sys.path.append("../")
 from vanillapoker import poker, pokerutils
 from fastapi import APIRouter
 from utils import *
+from ws_utils import *
 
-sio = AsyncServer(async_mode="asgi", cors_allowed_origins="*")
+
 router = APIRouter()
 
 # Classes
@@ -89,27 +90,6 @@ def gen_new_table_id():
         table_id = 10000 + int(random.random() * 990000)
     return str(table_id)
 
-# Socket.IO event handlers
-@sio.event
-async def connect(sid, environ):
-    print("Client connected:", sid)
-
-@sio.event
-async def disconnect(sid):
-    print("Client disconnected:", sid)
-
-async def ws_emit_actions(table_id, poker_table_obj):
-    # while True:
-    #     is_event, event = poker_table_obj.get_next_event(0)
-    #     if is_event:
-    #         await sio.emit(table_id, event)
-    #     else:
-    #         break
-    while poker_table_obj.events_pop:
-        event = poker_table_obj.events_pop.pop(0)
-        print("EMITTING EVENT", event)
-        await sio.emit(table_id, event)
-
 
 ### Helper functions end
 
@@ -122,8 +102,7 @@ TABLE_STORE = {}
 
 # Locks for player actions
 locks = {}
-# In-memory game store
-TABLE_STORE = {}
+
 
 
 # Join/Leave table endpoints
@@ -272,10 +251,10 @@ async def create_new_table(item: ItemCreateTable):
     assert 10 * big_blind <= min_buyin <= 400 * big_blind
     assert 10 * big_blind <= max_buyin <= 1000 * big_blind
     assert min_buyin <= max_buyin
-    poker_table_obj = poker.PokerTable(
-        small_blind, big_blind, min_buyin, max_buyin, num_seats
-    )
     table_id = gen_new_table_id()
+    poker_table_obj = poker.PokerTable(
+        table_id, small_blind, big_blind, min_buyin, max_buyin, num_seats
+    )
     TABLE_STORE[table_id] = poker_table_obj
     # except:
     #     err = traceback.format_exc()
