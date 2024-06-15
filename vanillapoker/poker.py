@@ -9,7 +9,13 @@ from dataclasses import dataclass
 from typing import Optional
 from vanillapoker import pokerutils
 import asyncio
-from ws_utils import sio, ws_emit_actions
+import os
+
+from dotenv import load_dotenv
+
+load_dotenv()  # take environment variables from .env.
+if os.environ.get('PURE_POKER_TESTING') != 'True':
+    from ws_utils import sio, ws_emit_actions
 
 # First 13 prime numbers
 # Multiply them together to get a unique value, which we can use to
@@ -142,8 +148,9 @@ class PokerTable:
 
                 for event in self.events:
                     print('start_turn_timeout: event', event)
-                await sio.emit(self.table_id, {"tag": "timeout", "player": player_address})
-                await ws_emit_actions(self.table_id, self)
+                if os.environ.get('PURE_POKER_TESTING') != 'True':
+                    await sio.emit(self.table_id, {"tag": "timeout", "player": player_address})
+                    await ws_emit_actions(self.table_id, self)
 
             self.reset_timeout(player_address)
 
@@ -799,7 +806,8 @@ class PokerTable:
                 self.whose_turn = check_i
                 inc = True
                 break
-        print('[after increment] increment_whose_turn_timeout, self.whose_turn:', self.hand_stage, self.whose_turn, self.seats[self.whose_turn]["address"], self.manage_timeout)
+        if self.seats[self.whose_turn] is not None:
+            print('[after increment] increment_whose_turn_timeout, self.whose_turn:', self.hand_stage, self.whose_turn, self.seats[self.whose_turn]["address"])
         if self.manage_timeout and self.num_active_players > 1 and inc and self.hand_stage in (HS_BB_POST_STAGE, HS_PREFLOP_BETTING, HS_FLOP_BETTING, HS_TURN_BETTING, HS_RIVER_BETTING):
             print('created timer', self.hand_stage, self.seats[self.whose_turn]["address"])
             self.reset_timeout(self.seats[self.whose_turn]["address"])

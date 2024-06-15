@@ -1,19 +1,24 @@
 import json
 import pytest
 import vanillapoker.poker as poker
-
+from unittest.mock import AsyncMock, patch
 
 @pytest.fixture
 def t6():
-    return poker.PokerTable(1, 2, 40, 400, 6)
-
+    with patch.object(poker.PokerTable, 'start_turn_timeout', new_callable=AsyncMock), \
+         patch.object(poker.PokerTable, 'reset_timeout', new_callable=AsyncMock):
+        yield poker.PokerTable(0, 1, 2, 40, 400, 6)
 
 @pytest.fixture
 def t2():
-    return poker.PokerTable(1, 2, 40, 400, 2)
+    with patch.object(poker.PokerTable, 'start_turn_timeout', new_callable=AsyncMock), \
+         patch.object(poker.PokerTable, 'reset_timeout', new_callable=AsyncMock):
+        yield poker.PokerTable(0, 1, 2, 40, 400, 2)
 
 
-def test_increment_hand_history(t2):
+
+@pytest.mark.asyncio
+async def test_increment_hand_history(t2):
     t2.events.append("e1")
     t2.events.append("e2")
     assert t2.hand_histories[1] == ["e1", "e2"]
@@ -30,14 +35,16 @@ def test_increment_hand_history(t2):
     assert t2.hand_histories[2] == ["e3"]
 
 
-def test_join_table(t6):
+@pytest.mark.asyncio
+async def test_join_table(t6):
     # Join at a seat that is not 0
     assert t6.seats[2] is None
     t6.join_table(2, 100, "0x123")
     assert t6.seats[2] is not None
 
 
-def test_no_bad_join_tables(t6):
+@pytest.mark.asyncio
+async def test_no_bad_join_tables(t6):
     # Join at a seat that is not 0
     t6.join_table(2, 100, "0x123")
     # Same player Joining at same or different seat should fail..
@@ -60,21 +67,24 @@ def test_no_bad_join_tables(t6):
         t6.join_table(1, 1, "0x456")
 
 
-def test_leave_table(t6):
+@pytest.mark.asyncio
+async def test_leave_table(t6):
     t6.join_table(0, 100, "0x123")
     assert t6.seats[0] is not None
     t6.leave_table(0, "0x123")
     assert t6.seats[0] is None
 
 
-def test_rebuy(t6):
+@pytest.mark.asyncio
+async def test_rebuy(t6):
     t6.join_table(0, 100, "0x123")
     # SHoudl be able to rebuy for max of 100 more
     t6.rebuy(0, 100, "0x123")
     assert t6.seats[0]["stack"] == 200
 
 
-def test_auto_post_blinds(t6):
+@pytest.mark.asyncio
+async def test_auto_post_blinds(t6):
     """
     If two players join, check that the blinds are auto posted
     """
@@ -92,7 +102,8 @@ def test_auto_post_blinds(t6):
     assert len(t6.seats[1]["holecards"]) == 2
 
 
-def test_integration_2p_showdown(t2, t6):
+@pytest.mark.asyncio
+async def test_integration_2p_showdown(t2, t6):
     """
     Play a full hand - both players join, play, then quit...
     """
@@ -137,7 +148,8 @@ def test_integration_2p_showdown(t2, t6):
     assert t.seats[1]["stack"] == 100
 
 
-def test_integration_2p_fold(t2, t6):
+@pytest.mark.asyncio
+async def test_integration_2p_fold(t2, t6):
     t = t6
     # Will always be a tie, think it's ok?
     t._get_showdown_val = lambda x: 10
@@ -157,7 +169,8 @@ def test_integration_2p_fold(t2, t6):
     assert t.seats[1]["stack"] == 101
 
 
-def test_integration_2p_allin(t2, t6):
+@pytest.mark.asyncio
+async def test_integration_2p_allin(t2, t6):
     t = t6
     # Will always be a tie, think it's ok?
     t._get_showdown_val = lambda x: 10
@@ -165,6 +178,10 @@ def test_integration_2p_allin(t2, t6):
     p1 = "0x456"
     t.join_table(0, 100, p0, False)
     t.join_table(1, 100, p1, False)
+
+    # Check that the seats have been correctly initialized
+    assert t.seats[0] is not None
+    assert t.seats[1] is not None
 
     t.take_action(poker.ACT_SB_POST, p0, 1)
     t.take_action(poker.ACT_BB_POST, p1, 2)
@@ -179,7 +196,8 @@ def test_integration_2p_allin(t2, t6):
     assert t.seats[1]["stack"] == 100
 
 
-def test_integration_3p_showdown(t6):
+@pytest.mark.asyncio
+async def test_integration_3p_showdown(t6):
     t = t6
     t._get_showdown_val = lambda x: 10
     p0 = "0x123"
@@ -224,7 +242,8 @@ def test_integration_3p_showdown(t6):
     assert t.seats[2]["stack"] == 100
 
 
-def test_integration_3p_one_fold(t6):
+@pytest.mark.asyncio
+async def test_integration_3p_one_fold(t6):
     t = t6
     t._get_showdown_val = lambda x: 10
     p0 = "0x123"
@@ -266,7 +285,8 @@ def test_integration_3p_one_fold(t6):
     assert t.seats[2]["stack"] == 101
 
 
-def test_integration_3p_two_folds(t6):
+@pytest.mark.asyncio
+async def test_integration_3p_two_folds(t6):
     t = t6
     t._get_showdown_val = lambda x: 10
     p0 = "0x123"
@@ -299,7 +319,8 @@ def test_integration_3p_two_folds(t6):
     assert t.seats[2]["stack"] == 98
 
 
-def test_integration_3p_allin(t6):
+@pytest.mark.asyncio
+async def test_integration_3p_allin(t6):
     t = t6
     t._get_showdown_val = lambda x: 10
     p0 = "0x123"
@@ -332,7 +353,8 @@ def test_integration_3p_allin(t6):
     assert t.seats[2]["stack"] == 100
 
 
-def test_integration_3p_weird_allin(t2, t6):
+@pytest.mark.asyncio
+async def test_integration_3p_weird_allin(t2, t6):
     t = t6
     t._get_showdown_val = lambda x: 10
     p0 = "0x123"
@@ -381,7 +403,8 @@ def test_integration_3p_weird_allin(t2, t6):
     print(t.events)
 
 
-def test_integration_2p_fold_two_hands(t6):
+@pytest.mark.asyncio
+async def test_integration_2p_fold_two_hands(t6):
     t = t6
     # Will always be a tie, think it's ok?
     t._get_showdown_val = lambda x: 10
@@ -422,7 +445,8 @@ def test_integration_2p_fold_two_hands(t6):
     # assert not t.seats[1]["sitting_out"]
 
 
-def test_integration_3p_open_fold(t2, t6):
+@pytest.mark.asyncio
+async def test_integration_3p_open_fold(t2, t6):
     t = t6
     t._get_showdown_val = lambda x: 10
     p0 = "0x123"
