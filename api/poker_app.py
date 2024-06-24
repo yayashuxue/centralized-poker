@@ -28,7 +28,7 @@ from asyncio import Lock
 sys.path.append("../")
 from vanillapoker import poker, pokerutils
 from fastapi import APIRouter
-from utils import *
+from database_utils import *
 from ws_utils import *
 
 

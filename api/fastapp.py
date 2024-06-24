@@ -25,7 +25,8 @@ from socketio import AsyncServer, ASGIApp
 from dotenv import load_dotenv
 from typing import Optional
 from asyncio import Lock
-import poker_app
+import poker_app, referral
+from database_utils import get_db_connection, read_balance_one, update_balance
 
 locks = {}
 
@@ -134,6 +135,7 @@ app.add_middleware(
     allow_headers=["*"],  # Allows all headers
 )
 app.include_router(poker_app.router)
+app.include_router(referral.router)
 
 # Wrap the Socket.IO server with ASGI middleware
 socket_app = ASGIApp(poker_app.sio, other_asgi_app=app)
@@ -284,17 +286,6 @@ async def create_new_nft(item: CreateNftItem):
     return nft_map[token_id]
 
 
-async def get_db_connection():
-    connection = await aiomysql.connect(
-        host=os.environ['SQL_HOST'],
-        port=3306,
-        user=os.environ["SQL_USER"],
-        password=os.environ["SQL_PASS"],
-        db="users",
-    )
-    return connection
-
-
 # Keep this call for debugging...
 @app.get("/users")
 async def read_users():
@@ -320,6 +311,16 @@ async def get_user(address: str):
         raise HTTPException(status_code=404, detail="User not found")
     return user
 
+@app.get("/isNewUser/{address}")
+async def is_new_user(address: str):
+    address = Web3.to_checksum_address(address)
+    connection = await get_db_connection()
+    async with connection.cursor(aiomysql.DictCursor) as cursor:
+        await cursor.execute("SELECT * FROM user_balances WHERE address = %s", (address,))
+        user = await cursor.fetchone()
+    connection.close()
+    return {"isNewUser": user is None}
+
 class User(BaseModel):
     address: str
     onChainBal: int
@@ -327,16 +328,15 @@ class User(BaseModel):
     inPlay: int
     referrer_address: Optional[str] = Field(None)
     x_account: Optional[str] = Field(None)
-    referral_code: Optional[str] = Field(None)
 
 class WalletUser(BaseModel):
     address: str
-    referrer_address: Optional[str] = Field(None)
+    referrer_address: Optional[str] = Field(None) # Dummy field for now
     x_account: Optional[str] = Field(None)
 
 # @app.post("/users")
 # async def create_user(user: User):
-async def create_user(address, on_chain_bal, local_bal, in_play, referrer_address=None, x_account=None, referral_code=None):
+async def create_user(address, on_chain_bal, local_bal, in_play, x_account=None):
     address = Web3.to_checksum_address(address)
     connection = await get_db_connection()
     async with connection.cursor() as cursor:
@@ -355,10 +355,10 @@ async def create_user(address, on_chain_bal, local_bal, in_play, referrer_addres
         try:
             await cursor.execute(
                 """
-                INSERT INTO user_balances (address, onChainBal, localBal, inPlay, referrer_address, x_account, referral_code) 
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                INSERT INTO user_balances (address, onChainBal, localBal, inPlay, x_account) 
+                VALUES (%s, %s, %s, %s, %s)
                 """,
-                (address, str(on_chain_bal), str(local_bal), str(in_play), referrer_address, x_account, referral_code),
+                (address, str(on_chain_bal), str(local_bal), str(in_play), x_account),
             )
             await connection.commit()
         except Exception as e:
@@ -368,11 +368,14 @@ async def create_user(address, on_chain_bal, local_bal, in_play, referrer_addres
     return {"message": "User created successfully"}
 
 
-@app.post("/connectWallet")
-async def connectWallet(user: WalletUser):
+@app.post("/createUser")
+async def createUser(user: WalletUser):
+    print("connectWallet called with user:", user)
     connection = await get_db_connection()
-    
+    print("Database connection obtained")
+
     async with connection.cursor() as cursor:
+        print("Cursor obtained")
         # Check if x_account already exists
         await cursor.execute(
             """
@@ -381,16 +384,24 @@ async def connectWallet(user: WalletUser):
             """,
             (user.x_account,)
         )
-        if await cursor.fetchone():
+        result = await cursor.fetchone()
+        print(f"Query result for existing x_account: {result}")
+        if result:
+            print("x_account already exists, raising HTTPException")
             raise HTTPException(status_code=400, detail="x_account already exists")
 
         # If no existing x_account, proceed to create the user
         try:
+            print("Proceeding to create user")
             # Pass default values for the other parameters
-            response = await create_user(user.address, 0, 0, 0, user.referrer_address, user.x_account, None)
+            response = await create_user(user.address, 0, 0, 0, user.x_account)
+            print(f"User created successfully: {response}")
+
+            # response = await referral.add_referrer(user_address=user.address, x_account=user.x_account)
             return response
         except HTTPException as e:
-            raise e  
+            print(f"Error creating user: {e}")
+            raise e
 
 class UserUpdate(BaseModel):
     address: str = Field(...)
@@ -447,45 +458,45 @@ class UserBalance(BaseModel):
 
 # @app.put("/balances")
 # async def update_balance(balance: UserBalance):
-async def update_balance(on_chain_bal_new, local_bal_new, inPlay, address):
-    # (balance.onChainBal, balance.localBal, balance.inPlay, balance.address),
-    address = Web3.to_checksum_address(address)
-    connection = await get_db_connection()
-    print("ACTUALLY SETTING FOR ADDR", address)
-    async with connection.cursor() as cursor:
-        try:
-            await cursor.execute(
-                """
-                UPDATE user_balances 
-                SET onChainBal = %s, localBal = %s, inPlay = %s 
-                WHERE address = %s
-            """,
-                (str(on_chain_bal_new), str(local_bal_new), str(inPlay), address),
-            )
-            await connection.commit()
-        except Exception as e:
-            await connection.rollback()
-            raise HTTPException(status_code=400, detail="Error updating balance") from e
-    connection.close()
-    return {"message": "Balance updated successfully"}
+# async def update_balance(on_chain_bal_new, local_bal_new, inPlay, address):
+#     # (balance.onChainBal, balance.localBal, balance.inPlay, balance.address),
+#     address = Web3.to_checksum_address(address)
+#     connection = await get_db_connection()
+#     print("ACTUALLY SETTING FOR ADDR", address)
+#     async with connection.cursor() as cursor:
+#         try:
+#             await cursor.execute(
+#                 """
+#                 UPDATE user_balances 
+#                 SET onChainBal = %s, localBal = %s, inPlay = %s 
+#                 WHERE address = %s
+#             """,
+#                 (str(on_chain_bal_new), str(local_bal_new), str(inPlay), address),
+#             )
+#             await connection.commit()
+#         except Exception as e:
+#             await connection.rollback()
+#             raise HTTPException(status_code=400, detail="Error updating balance") from e
+#     connection.close()
+#     return {"message": "Balance updated successfully"}
 
 
-async def read_balance_one(address: str):
-    connection = await get_db_connection()
-    address = Web3.to_checksum_address(address)
-    async with connection.cursor(aiomysql.DictCursor) as cursor:
-        await cursor.execute(
-            "SELECT * FROM user_balances WHERE address = %s", (address,)
-        )
-        balance = await cursor.fetchone()
-        if balance is None:
-            raise HTTPException(status_code=404, detail="User not found")
-        # db entries are now strings
-        balance["onChainBal"] = int(float(balance["onChainBal"]))
-        balance["localBal"] = int(float(balance["localBal"]))
-        balance["inPlay"] = int(float(balance["inPlay"]))
-    connection.close()
-    return balance
+# async def read_balance_one(address: str):
+#     connection = await get_db_connection()
+#     address = Web3.to_checksum_address(address)
+#     async with connection.cursor(aiomysql.DictCursor) as cursor:
+#         await cursor.execute(
+#             "SELECT * FROM user_balances WHERE address = %s", (address,)
+#         )
+#         balance = await cursor.fetchone()
+#         if balance is None:
+#             raise HTTPException(status_code=404, detail="User not found")
+#         # db entries are now strings
+#         balance["onChainBal"] = int(float(balance["onChainBal"]))
+#         balance["localBal"] = int(float(balance["localBal"]))
+#         balance["inPlay"] = int(float(balance["inPlay"]))
+#     connection.close()
+#     return balance
 
 
 class WithdrawItem(BaseModel):

@@ -43,7 +43,7 @@ async def update_balance(on_chain_bal_new, local_bal_new, inPlay, address):
     # (balance.onChainBal, balance.localBal, balance.inPlay, balance.address),
     address = Web3.to_checksum_address(address)
     connection = await get_db_connection()
-    print("ACTUALLY SETTING FOR ADDR", address)
+    print("ACTUALLY SETTING FOR ADDR", address, on_chain_bal_new, local_bal_new)
     async with connection.cursor() as cursor:
         try:
             await cursor.execute(
