@@ -12,6 +12,7 @@ class ReferrerUpdate(BaseModel):
     user_address: str
     x_account: str
 
+
 @router.post("/addReferrer")
 async def add_referrer(referrer_update: ReferrerUpdate):
     connection = await get_db_connection()
@@ -28,6 +29,14 @@ async def add_referrer(referrer_update: ReferrerUpdate):
         if not referrer:
             raise HTTPException(status_code=404, detail="Referrer x_account not found")
 
+        # Convert both addresses to checksum format for comparison
+        user_address_checksum = Web3.to_checksum_address(referrer_update.user_address)
+        referrer_address_checksum = Web3.to_checksum_address(referrer[0])
+
+        # Check if the user is trying to refer themselves
+        if user_address_checksum == referrer_address_checksum:
+            raise HTTPException(status_code=400, detail="Self-referral is not allowed")
+
         print('Referrer:', referrer[0])
         # Update the referrer_address of the user
         try:
@@ -40,7 +49,7 @@ async def add_referrer(referrer_update: ReferrerUpdate):
                 SET referrer_address = %s
                 WHERE address = %s
                 """,
-                (referrer[0], Web3.to_checksum_address(referrer_update.user_address)),
+                (referrer[0], user_address_checksum),
             )
             # Atomically increment the referee_count for the referrer
             await cursor.execute(
