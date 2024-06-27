@@ -612,7 +612,7 @@ class PokerTable:
         # Kind of ugly but set it one seat BEFOFE the first to act and then increment -
         # The issue is that if we have a 3 way pot, and first to act folds on an earlier
         # street, it will make it so it's their turn
-        self.whose_turn = (self.button - 1) % self.num_seats
+        self.whose_turn = (self.button) % self.num_seats #SB Small Blind bug here!
         print('_next_street', self.whose_turn)
         self._increment_whose_turn()
 
@@ -716,6 +716,7 @@ class PokerTable:
 
         self._increment_button()
         self.whose_turn = self.button
+        #self._increment_whose_turn() #SB bug
 
         self._increment_hand_history()
 
@@ -735,8 +736,11 @@ class PokerTable:
             print('should not post blind!!')
             return False
         print('should post blind!!')
+
         if post_type == "SB" and len([p for p in self.seats if p is not None]) >= 2:
             assert self.hand_stage == HS_SB_POST_STAGE, "Bad hand stage!"
+            # TODO - this means we need to use auto post for the engine to function correctly
+            self._increment_whose_turn()
             if (
                 self.seats[self.whose_turn]["auto_post"]
                 # and not self.seats[self.whose_turn]["sitting_out"]
