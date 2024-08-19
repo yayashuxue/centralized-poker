@@ -5,6 +5,7 @@ import traceback
 import json
 import random
 import traceback
+import asyncio
 from web3 import Web3, AsyncWeb3
 from eth_account import Account
 from fastapi import (
@@ -90,6 +91,29 @@ def gen_new_table_id():
         table_id = 10000 + int(random.random() * 990000)
     return str(table_id)
 
+async def start_turn_timeout(poker_table_obj, player_address, timeout_seconds=20):
+    print("START TIMEOUT")
+    await asyncio.sleep(timeout_seconds)
+    if player_address in poker_table_obj.timeout_tasks:
+        print("TIMEOUT!")
+        if poker_table_obj.facing_bet == 0:
+            poker_table_obj.take_action(poker.ACT_CHECK,player_address,0)
+        else:
+            poker_table_obj.take_action(poker.ACT_FOLD,player_address,0)
+        poker_table_obj.numberofTimeouts[player_address]=poker_table_obj.numberofTimeouts.get(player_address, 0) + 1
+        if poker_table_obj.numberofTimeouts[player_address]>=2:
+            poker_table_obj.numberofTimeouts[player_address]=0
+            # Call leave_table function
+            item_to_leave = ItemLeaveTable(tableId=poker_table_obj.table_id, address=player_address, seatI=poker_table_obj.player_to_seat[player_address])
+            await leave_table(item_to_leave)
+
+        poker_table_obj.timeout_tasks.pop(player_address).cancel()
+        current_player=poker_table_obj.seats[poker_table_obj.whose_turn]["address"]
+        poker_table_obj.timeout_tasks[current_player] = asyncio.create_task(start_turn_timeout(poker_table_obj, current_player))
+        await ws_emit_actions(poker_table_obj.table_id, poker_table_obj)
+    else:
+        print("NO TIMEOUT")
+        
 
 ### Helper functions end
 
@@ -141,6 +165,7 @@ async def join_table(item: ItemJoinTable):
 
 @router.post("/leaveTable")
 async def leave_table(item: ItemLeaveTable):
+    #To do: add a lock
     table_id = item.tableId
     player_id = Web3.to_checksum_address(item.address)
     seat_i = item.seatI
@@ -211,11 +236,17 @@ async def take_action(item: ItemTakeAction):
     poker_table_obj = TABLE_STORE[table_id]
     start_hand_stage = poker_table_obj.hand_stage
 
-    try:
+    """if action_type==poker.ACT_SB_POST:
         poker_table_obj.take_action(action_type, player_id, amount)
-    except Exception as e:
-        print("ERROR TAKING ACTION", e)
-        raise HTTPException(status_code=400, detail=str(e))
+        current_player=poker_table_obj.seats[poker_table_obj.whose_turn]["address"]
+        poker_table_obj.timeout_tasks[current_player] = asyncio.create_task(start_turn_timeout(poker_table_obj, current_player))"""
+    # Cancel existing timeout task if any
+    if player_id in poker_table_obj.timeout_tasks:
+        poker_table_obj.timeout_tasks.pop(player_id).cancel()
+        poker_table_obj.numberofTimeouts[player_id]=0
+    poker_table_obj.take_action(action_type, player_id, amount)
+    current_player=poker_table_obj.seats[poker_table_obj.whose_turn]["address"]
+    poker_table_obj.timeout_tasks[current_player] = asyncio.create_task(start_turn_timeout(poker_table_obj, current_player))
     
     await ws_emit_actions(table_id, poker_table_obj)
 
@@ -255,6 +286,8 @@ async def create_new_table(item: ItemCreateTable):
     poker_table_obj = poker.PokerTable(
         table_id, small_blind, big_blind, min_buyin, max_buyin, num_seats
     )
+    print("SETTING timeout function")
+    poker_table_obj.set_start_timeout_callback(lambda table, player: asyncio.create_task(start_turn_timeout(table, player)))
     TABLE_STORE[table_id] = poker_table_obj
     # except:
     #     err = traceback.format_exc()

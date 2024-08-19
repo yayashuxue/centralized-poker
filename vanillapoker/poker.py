@@ -10,6 +10,8 @@ from typing import Optional
 from vanillapoker import pokerutils
 import asyncio
 import os
+import sys
+import importlib
 
 from dotenv import load_dotenv
 
@@ -70,6 +72,7 @@ class PokerTable:
     lookup_table_basic_7c = {}
     lookup_table_flush_5c = {}
 
+    
     def __init__(
         self,
         table_id: str,
@@ -108,9 +111,12 @@ class PokerTable:
         self.board = []
 
         # Will be used to track timeouts
+        
         self.timeout_tasks = {}
         self.manage_timeout = True
         self.numberofTimeouts = {}
+        self.start_timeout_callback = None
+        
 
         # Append every single event here for the api to pop them off
         # TODO - look to be smarter about this...
@@ -122,6 +128,7 @@ class PokerTable:
         self._increment_hand_history()
 
     # Handle Timeout & Cancel Timeout
+    """
     async def start_turn_timeout(self, player_address, timeout_seconds=20):
         await asyncio.sleep(timeout_seconds)
         if player_address in self.timeout_tasks:
@@ -163,8 +170,7 @@ class PokerTable:
             print('reset_timeout: after cancel')
             self.timeout_tasks.pop(player_address, None)  # Remove the task reference
             print('reset_timeout: after pop')
-
-
+    """
 
     def _increment_hand_history(self):
         # Map from hand_id to events list
@@ -415,10 +421,12 @@ class PokerTable:
         player_data = self.seats[seat_i]
         assert player_data["in_hand"], "Player not in hand!"
 
+        """
         if reset_timeout:
             print('take_action: reset_timeout')
             self.reset_timeout(address)
-        
+        """
+
         hs = HandState(
             player_stack=player_data["stack"],
             player_bet_street=player_data["bet_street"],
@@ -808,11 +816,13 @@ class PokerTable:
                 break
         if self.seats[self.whose_turn] is not None:
             print('[after increment] increment_whose_turn_timeout, self.whose_turn:', self.hand_stage, self.whose_turn, self.seats[self.whose_turn]["address"])
+
+        """
         if self.manage_timeout and self.num_active_players > 1 and inc and self.hand_stage in (HS_BB_POST_STAGE, HS_PREFLOP_BETTING, HS_FLOP_BETTING, HS_TURN_BETTING, HS_RIVER_BETTING):
             print('created timer', self.hand_stage, self.seats[self.whose_turn]["address"])
             self.reset_timeout(self.seats[self.whose_turn]["address"])
             self.timeout_tasks[self.seats[self.whose_turn]["address"]] = asyncio.create_task(self.start_turn_timeout(self.seats[self.whose_turn]["address"]))
-
+        """
         # Can go beyond num_seats in variety of ways
         # assert self.closing_action_count <= (
         #     self.num_seats + 1
@@ -880,6 +890,11 @@ class PokerTable:
         street_over = self.closing_action_count >= self.num_seats
         return street_over
 
+
+    def set_start_timeout_callback(self, callback):
+        """Method to set the callback function for starting the timeout"""
+        self.start_timeout_callback = callback
+
     def _transition_hand_stage(self, **kwargs):
         """
         Keep transitioning state until it's time to wait for external action...
@@ -922,12 +937,31 @@ class PokerTable:
                 posted = self._handle_auto_post("BB")
             if posted:
                 self.hand_stage += 1
+                
+                """# reset timeout timer and timeout count
+                for player in self.timeout_tasks:
+                    self.timeout_tasks[player].cancel()
+                    self.timeout_tasks.pop(player)
+                for player in self.numberofTimeouts:
+                    self.numberofTimeouts[player]=0
+                # Initial timer
+                sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'api')))
+                poker_app = importlib.import_module('poker_app')
+                self.timeout_tasks[self.seats[self.whose_turn]["address"]]=asyncio.create_task(poker_app.start_turn_timeout(self, self.seats[self.whose_turn]["address"]))"""
                 self._transition_hand_stage()
             return
         elif self.hand_stage == HS_HOLECARDS_DEAL:
             self._deal_holecards()
             self.hand_stage += 1
             self._transition_hand_stage()
+            
+            current_player = self.seats[self.whose_turn]["address"]
+            print("starting timeout for "+current_player)
+            if self.start_timeout_callback:
+                print("HERE")
+                self.timeout_tasks[current_player] = self.start_timeout_callback(self, current_player)
+            else:
+                print("FUNCTION NOT SET")
             return
         elif self.hand_stage == HS_PREFLOP_BETTING:
             # If we're at preflop betting stage - we should wait for external action
