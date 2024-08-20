@@ -101,7 +101,7 @@ async def start_turn_timeout(poker_table_obj, player_address, timeout_seconds=20
         else:
             poker_table_obj.take_action(poker.ACT_FOLD,player_address,0)
         poker_table_obj.numberofTimeouts[player_address]=poker_table_obj.numberofTimeouts.get(player_address, 0) + 1
-        if poker_table_obj.numberofTimeouts[player_address]>=2:
+        if poker_table_obj.numberofTimeouts[player_address]>=3:
             poker_table_obj.numberofTimeouts[player_address]=0
             # Call leave_table function
             item_to_leave = ItemLeaveTable(tableId=poker_table_obj.table_id, address=player_address, seatI=poker_table_obj.player_to_seat[player_address])
